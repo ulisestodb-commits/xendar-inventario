@@ -1,0 +1,35 @@
+{
+  "name": "agente-ia-inventario",
+  "version": "1.0.0",
+  "description": "Agente de IA para automatización de gestión de inventario con n8n y MCP",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "postinstall": "tsc",
+    "start": "node dist/web/apiServer.js",
+    "web": "node dist/web/apiServer.js",
+    "dev": "ts-node src/index.ts",
+    "dev:web": "ts-node src/web/apiServer.ts"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@modelcontextprotocol/sdk": "^1.4.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.1.0",
+    "cors": "^2.8.6",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "multer": "^2.1.1",
+    "pdf-parse": "^1.1.1",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "@types/pdf-parse": "^1.1.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}

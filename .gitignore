@@ -1,0 +1,14 @@
+# Dependencias
+node_modules/
+npm-debug.log
+
+# Entorno
+.env
+
+# Archivos temporales de prueba
+test-*.js
+check-*.js
+limpiar-db.js
+
+# TypeScript output (Railway compila desde cero)
+# NO ignorar dist/ — Railway lo necesita si no compila en build

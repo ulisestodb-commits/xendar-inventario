@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Xendar — Gestión de Inventario</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">X</div>
+      <span class="logo-text">Xendar</span>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" onclick="showView('stock')" id="nav-stock">
+        <span class="nav-icon">📦</span>
+        <span class="nav-label">Stock Actual</span>
+      </button>
+      <button class="nav-item" onclick="showView('ocs')" id="nav-ocs">
+        <span class="nav-icon">📋</span>
+        <span class="nav-label">Órdenes de Compra</span>
+      </button>
+      <button class="nav-item" onclick="showView('remitos')" id="nav-remitos">
+        <span class="nav-icon">🚚</span>
+        <span class="nav-label">Remitos</span>
+      </button>
+      <button class="nav-item" onclick="showView('importar')" id="nav-importar">
+        <span class="nav-icon">📥</span>
+        <span class="nav-label">Importar Excel</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="connection-status" id="conn-status">
+        <span class="status-dot"></span>
+        <span>Conectado</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+    <!-- HEADER -->
+    <header class="top-bar">
+      <div class="top-bar-left">
+        <h1 class="page-title" id="page-title">Stock Actual</h1>
+        <span class="page-subtitle" id="page-subtitle">Inventario consolidado de todas las OCs activas</span>
+      </div>
+      <div class="top-bar-right">
+        <button class="btn btn-secondary" onclick="refreshCurrentView()">
+          <span>↻</span> Actualizar
+        </button>
+      </div>
+    </header>
+
+    <!-- VIEWS -->
+
+    <!-- VIEW: STOCK -->
+    <div class="view active" id="view-stock">
+      <div class="stats-grid" id="stock-stats"></div>
+      <div class="card">
+        <div class="card-header">
+          <h2>Inventario Consolidado</h2>
+          <div class="search-box">
+            <input type="text" id="stock-search" placeholder="Buscar producto..." oninput="filterTable('stock-table', this.value)" />
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table id="stock-table">
+            <thead>
+              <tr>
+                <th>Código SAP Cliente</th>
+                <th>Código SAP Interno</th>
+                <th>Descripción</th>
+                <th>Saldo General</th>
+                <th>Unidad</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="stock-tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="stock-empty" style="display:none">
+          <div class="empty-icon">📦</div>
+          <p>No hay stock disponible</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW: OCs -->
+    <div class="view" id="view-ocs">
+      <div class="stats-grid" id="ocs-stats"></div>
+      <div class="card">
+        <div class="card-header">
+          <h2>Órdenes de Compra</h2>
+          <div class="search-box">
+            <input type="text" id="ocs-search" placeholder="Buscar OC..." oninput="filterTable('ocs-table', this.value)" />
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table id="ocs-table">
+            <thead>
+              <tr>
+                <th>N° OC</th>
+                <th>Fecha</th>
+                <th>Ítems</th>
+                <th>Cant. Original</th>
+                <th>Saldo Pendiente</th>
+                <th>Archivo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="ocs-tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="ocs-empty" style="display:none">
+          <div class="empty-icon">📋</div>
+          <p>No hay OCs registradas</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW: IMPORTAR EXCEL -->
+    <div class="view" id="view-importar">
+      <div class="import-hero">
+        <div class="import-drop-zone" id="drop-zone"
+             ondragover="event.preventDefault(); this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event)">
+          <div class="drop-icon">📊</div>
+          <p class="drop-title">Arrastrá tu Excel aquí</p>
+          <p class="drop-sub">o hacé clic para seleccionar el archivo</p>
+          <input type="file" id="excel-file-input" accept=".xlsx,.xls,.ods" style="display:none" onchange="handleFileSelect(event)" />
+          <button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('excel-file-input').click()">Seleccionar archivo</button>
+        </div>
+
+        <div class="import-info-box">
+          <h3>📋 Formato esperado del Excel</h3>
+          <p>El sistema detecta automáticamente las columnas. Los nombres pueden variar pero deben contener alguna de estas palabras clave:</p>
+          <table class="info-table">
+            <thead><tr><th>Dato</th><th>Palabras clave en el header</th><th>Ejemplo</th></tr></thead>
+            <tbody>
+              <tr><td>Código Interno</td><td><code>RHI</code>, <code>interno</code></td><td>RHI, Cod_Interno</td></tr>
+              <tr><td>Código Cliente</td><td><code>ACN</code>, <code>cliente</code></td><td>ACN, Cod_Cliente</td></tr>
+              <tr><td>Descripción</td><td><code>desc</code>, <code>producto</code>, <code>nombre</code></td><td>Descripcion</td></tr>
+              <tr><td>Saldo</td><td><code>saldo</code>, <code>stock</code>, <code>cantidad</code></td><td>Saldo Actual</td></tr>
+              <tr><td>Unidad</td><td><code>unidad</code>, <code>um</code></td><td>UM (opcional)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RESULTADO PREVIEW -->
+      <div id="import-preview-section" style="display:none">
+        <div class="import-status-bar" id="import-status-bar"></div>
+
+        <div class="card" style="margin-top:20px">
+          <div class="card-header">
+            <div>
+              <h2>Vista previa — <span id="preview-count">0</span> filas detectadas</h2>
+              <span style="font-size:12px;color:var(--text-muted)" id="preview-cols-info"></span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="form-group" style="margin:0">
+                <input type="text" id="oc-nombre-input" placeholder="Nombre OC (ej: SALDO_INI_2026)" style="width:220px" />
+              </div>
+              <button class="btn btn-primary" onclick="confirmarImport()">✅ Confirmar importación</button>
+            </div>
+          </div>
+          <div class="table-wrapper">
+            <table id="preview-table">
+              <thead>
+                <tr>
+                  <th>Fila</th>
+                  <th>Código Interno (RHI)</th>
+                  <th>Código Cliente (ACN)</th>
+                  <th>Descripción</th>
+                  <th>Saldo</th>
+                  <th>Unidad</th>
+                </tr>
+              </thead>
+              <tbody id="preview-tbody"></tbody>
+            </table>
+          </div>
+          <div id="preview-more" style="padding:12px 24px;font-size:12px;color:var(--text-muted)"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIEW: REMITOS -->
+    <div class="view" id="view-remitos">
+      <div class="stats-grid" id="remitos-stats"></div>
+      <div class="card">
+        <div class="card-header">
+          <h2>Remitos</h2>
+          <div class="search-box">
+            <input type="text" id="remitos-search" placeholder="Buscar remito..." oninput="filterTable('remitos-table', this.value)" />
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table id="remitos-table">
+            <thead>
+              <tr>
+                <th>N° Remito</th>
+                <th>Fecha</th>
+                <th>OC Asociada</th>
+                <th>Ítems</th>
+                <th>Total Entregado</th>
+                <th>Archivo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="remitos-tbody"></tbody>
+          </table>
+        </div>
+        <div class="empty-state" id="remitos-empty" style="display:none">
+          <div class="empty-icon">🚚</div>
+          <p>No hay remitos registrados</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL DETALLE OC -->
+  <div class="modal-overlay" id="modal-oc" onclick="closeModal('modal-oc')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-oc-title">Detalle OC</h3>
+          <span id="modal-oc-subtitle" class="modal-subtitle"></span>
+        </div>
+        <button class="modal-close" onclick="closeModal('modal-oc')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="table-wrapper">
+          <table id="modal-oc-table">
+            <thead>
+              <tr>
+                <th>Pos.</th>
+                <th>Código SAP</th>
+                <th>Descripción</th>
+                <th>Cant. Original</th>
+                <th>Saldo Pendiente</th>
+                <th>Unidad</th>
+                <th>Editar</th>
+              </tr>
+            </thead>
+            <tbody id="modal-oc-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DETALLE REMITO -->
+  <div class="modal-overlay" id="modal-remito" onclick="closeModal('modal-remito')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-remito-title">Detalle Remito</h3>
+          <span id="modal-remito-subtitle" class="modal-subtitle"></span>
+        </div>
+        <button class="modal-close" onclick="closeModal('modal-remito')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="table-wrapper">
+          <table id="modal-remito-table">
+            <thead>
+              <tr>
+                <th>OC Asociada</th>
+                <th>Código SAP</th>
+                <th>Descripción</th>
+                <th>Cant. Entregada</th>
+                <th>Unidad</th>
+                <th>Editar</th>
+              </tr>
+            </thead>
+            <tbody id="modal-remito-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL EDITAR ITEM OC -->
+  <div class="modal-overlay" id="modal-edit-oc-item" onclick="closeModal('modal-edit-oc-item')">
+    <div class="modal modal-sm" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Modificar Ítem OC</h3>
+        <button class="modal-close" onclick="closeModal('modal-edit-oc-item')">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-edit-oc-item" onsubmit="saveOCItem(event)">
+          <input type="hidden" id="edit-oc-numero" />
+          <input type="hidden" id="edit-oc-item-id" />
+          <div class="form-group">
+            <label>Descripción</label>
+            <input type="text" id="edit-oc-desc" required />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Cantidad Original</label>
+              <input type="number" id="edit-oc-cant-orig" step="0.001" min="0" required />
+            </div>
+            <div class="form-group">
+              <label>Saldo Pendiente</label>
+              <input type="number" id="edit-oc-saldo" step="0.001" min="0" required />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Unidad</label>
+            <input type="text" id="edit-oc-unidad" required />
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-edit-oc-item')">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL EDITAR ITEM REMITO -->
+  <div class="modal-overlay" id="modal-edit-remito-item" onclick="closeModal('modal-edit-remito-item')">
+    <div class="modal modal-sm" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Modificar Ítem Remito</h3>
+        <button class="modal-close" onclick="closeModal('modal-edit-remito-item')">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-edit-remito-item" onsubmit="saveRemitoItem(event)">
+          <input type="hidden" id="edit-remito-numero" />
+          <input type="hidden" id="edit-remito-item-id" />
+          <div class="form-group">
+            <label>Nueva Cantidad Entregada</label>
+            <input type="number" id="edit-remito-cant" step="0.001" min="0" required />
+          </div>
+          <p class="form-hint">⚠️ Ajustar la cantidad modifica automáticamente el saldo de la OC asociada.</p>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeModal('modal-edit-remito-item')">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DESGLOSE STOCK POR OC -->
+  <div class="modal-overlay" id="modal-stock-oc" onclick="closeModal('modal-stock-oc')">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-stock-title">Saldo por OC</h3>
+          <span id="modal-stock-subtitle" class="modal-subtitle"></span>
+        </div>
+        <button class="modal-close" onclick="closeModal('modal-stock-oc')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>N° OC</th>
+                <th>Fecha OC</th>
+                <th>Cant. Original</th>
+                <th>Saldo Pendiente</th>
+                <th>Progreso</th>
+                <th>Unidad</th>
+              </tr>
+            </thead>
+            <tbody id="modal-stock-oc-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- CONFIRM DIALOG -->
+  <div class="modal-overlay" id="modal-confirm" onclick="cancelConfirm()">
+    <div class="modal modal-sm confirm-modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="confirm-title">Confirmar acción</h3>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-message"></p>
+        <div class="form-actions">
+          <button class="btn btn-secondary" onclick="cancelConfirm()">Cancelar</button>
+          <button class="btn btn-danger" id="confirm-btn" onclick="executeConfirm()">Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
