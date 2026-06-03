@@ -1,5 +1,6 @@
 // ===== ESTADO GLOBAL =====
-const API = 'http://localhost:3000/api';
+// URL relativa: funciona tanto en localhost como en Railway/producción
+const API = '/api';
 let currentView = 'stock';
 let confirmCallback = null;
 let importData = null; // Datos del Excel para confirmar
