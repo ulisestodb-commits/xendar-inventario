@@ -50,7 +50,7 @@ const db_1 = require("../database/db");
 const dotenv = __importStar(require("dotenv"));
 dotenv.config();
 const app = (0, express_1.default)();
-const PORT = process.env.WEB_PORT || 3000;
+const PORT = process.env.PORT || process.env.WEB_PORT || 3000;
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 app.use(express_1.default.static(path.join(__dirname, '..', '..', 'public')));
