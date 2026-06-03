@@ -100,20 +100,44 @@ async function getDatabase() {
     const client = (0, client_1.createClient)({ url: `file:${dbPath}` });
     // Habilitar claves foráneas
     await client.execute('PRAGMA foreign_keys = ON');
-    // Inicializar esquema
-    const schemaPath = path.join(__dirname, '..', '..', 'database', 'schema.sql');
-    if (!fs.existsSync(schemaPath)) {
-        throw new Error(`Archivo de esquema no encontrado en: ${schemaPath}`);
-    }
-    const schemaSql = fs.readFileSync(schemaPath, 'utf8');
-    // Ejecutar cada sentencia del schema individualmente
-    const stmts = schemaSql
-        .split(';')
-        .map(s => s.trim())
-        .filter(s => s.length > 0 && !s.startsWith('--'));
-    for (const stmt of stmts) {
-        await client.execute(stmt);
-    }
+    // Inicializar esquema con batch() — más robusto que exec() con split
+    await client.batch([
+        `CREATE TABLE IF NOT EXISTS documentos (
+      numero VARCHAR(50) PRIMARY KEY,
+      tipo VARCHAR(10) CHECK (tipo IN ('OC', 'REMITO')),
+      fecha DATE NOT NULL,
+      archivo_origen VARCHAR(255),
+      creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+        `CREATE TABLE IF NOT EXISTS mapeo_codigos_sap (
+      codigo_sap_cliente VARCHAR(50) PRIMARY KEY,
+      codigo_sap_interno VARCHAR(50) NOT NULL,
+      descripcion VARCHAR(255),
+      creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+        `CREATE TABLE IF NOT EXISTS items_oc (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      documento_numero VARCHAR(50) REFERENCES documentos(numero) ON DELETE CASCADE,
+      item_posicion INTEGER,
+      codigo_sap_cliente VARCHAR(50),
+      descripcion VARCHAR(255),
+      cantidad_original REAL NOT NULL,
+      saldo_pendiente REAL NOT NULL,
+      unidad VARCHAR(10),
+      UNIQUE (documento_numero, codigo_sap_cliente)
+    )`,
+        `CREATE TABLE IF NOT EXISTS items_remito (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      documento_numero VARCHAR(50) REFERENCES documentos(numero) ON DELETE CASCADE,
+      oc_asociada_numero VARCHAR(50) REFERENCES documentos(numero),
+      codigo_sap_interno VARCHAR(50),
+      codigo_sap_cliente VARCHAR(50),
+      cantidad_entregada REAL NOT NULL,
+      unidad VARCHAR(10)
+    )`,
+        `CREATE INDEX IF NOT EXISTS idx_items_oc_codigo ON items_oc(documento_numero, codigo_sap_cliente)`,
+        `CREATE INDEX IF NOT EXISTS idx_items_remito_oc ON items_remito(oc_asociada_numero)`,
+    ], 'deferred');
     dbInstance = new DBCompat(client);
     return dbInstance;
 }
