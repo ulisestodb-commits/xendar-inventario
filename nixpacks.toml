@@ -1,8 +1,5 @@
-[phases.setup]
-aptPkgs = ["python3", "make", "g++", "libsqlite3-dev"]
-
 [phases.install]
-cmds = ["npm install", "npm rebuild sqlite3 --build-from-source"]
+cmds = ["npm install"]
 
 [phases.build]
 cmds = ["npm run build"]
