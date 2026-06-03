@@ -147,7 +147,8 @@ async function confirmarImport() {
 function resetDropZone() {
   importData = null;
   document.getElementById('import-preview-section').style.display = 'none';
-  document.getElementById('excel-file-input').value = '';
+  const fileInput = document.getElementById('excel-file-input');
+  if (fileInput) fileInput.value = '';
   document.getElementById('drop-zone').innerHTML = `
     <div class="drop-icon">📊</div>
     <p class="drop-title">Arrastrá tu Excel aquí</p>
