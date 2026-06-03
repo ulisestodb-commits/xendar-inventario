@@ -1,0 +1,4 @@
+node_modules
+inventario.db
+.env
+.git
