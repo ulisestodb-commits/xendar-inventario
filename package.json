@@ -5,7 +5,6 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "postinstall": "tsc",
     "start": "node dist/web/apiServer.js",
     "web": "node dist/web/apiServer.js",
     "dev": "ts-node src/index.ts",
