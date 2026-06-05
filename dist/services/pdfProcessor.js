@@ -44,6 +44,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.extractTextFromPdf = extractTextFromPdf;
+exports.parseOCFromBuffer = parseOCFromBuffer;
+exports.parseRemitoFromBuffer = parseRemitoFromBuffer;
 exports.parseOCWithGemini = parseOCWithGemini;
 exports.parseRemitoWithGemini = parseRemitoWithGemini;
 const fs = __importStar(require("fs"));
@@ -126,6 +128,48 @@ async function extractTextFromPdf(filePath) {
     const dataBuffer = fs.readFileSync(filePath);
     const parsedData = await (0, pdf_parse_1.default)(dataBuffer);
     return parsedData.text;
+}
+/**
+ * Convierte un Buffer de PDF en la parte inlineData para Gemini.
+ */
+function bufferToPdfPart(buffer) {
+    return {
+        inlineData: {
+            data: buffer.toString('base64'),
+            mimeType: 'application/pdf',
+        },
+    };
+}
+/**
+ * Procesa un PDF de Orden de Compra desde un Buffer en memoria (para la API web).
+ */
+async function parseOCFromBuffer(buffer) {
+    const modelName = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+    const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: { responseMimeType: 'application/json', responseSchema: ocSchema },
+    });
+    const prompt = `Analiza el documento adjunto (Orden de Compra / Pedido de Compras).
+Extrae los datos requeridos de forma estricta según el esquema provisto.
+Asegúrate de capturar la fecha en formato YYYY-MM-DD y limpiar los números eliminando separadores de miles y unidades para obtener números válidos en el JSON.`;
+    const text = await generateContentWithRetry(model, [prompt, bufferToPdfPart(buffer)]);
+    return JSON.parse(text);
+}
+/**
+ * Procesa un PDF de Remito desde un Buffer en memoria (para la API web).
+ */
+async function parseRemitoFromBuffer(buffer) {
+    const modelName = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+    const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: { responseMimeType: 'application/json', responseSchema: remitoSchema },
+    });
+    const prompt = `Analiza el documento adjunto (Remito / Remito de Entrega).
+Extrae los datos requeridos de forma estricta según el esquema provisto.
+Presta especial atención al número de la Orden de Compra asociada al remito (generalmente antecedido por 'OC#', 'Orden de Compra', 'Pedido', 'OC', etc., ej: 43723584).
+Asegúrate de capturar la fecha en formato YYYY-MM-DD y limpiar las cantidades.`;
+    const text = await generateContentWithRetry(model, [prompt, bufferToPdfPart(buffer)]);
+    return JSON.parse(text);
 }
 /**
  * Helper con reintentos automáticos y backoff exponencial ante errores 429 de cuota.

@@ -119,6 +119,51 @@ export async function extractTextFromPdf(filePath: string): Promise<string> {
 }
 
 /**
+ * Convierte un Buffer de PDF en la parte inlineData para Gemini.
+ */
+function bufferToPdfPart(buffer: Buffer) {
+  return {
+    inlineData: {
+      data: buffer.toString('base64'),
+      mimeType: 'application/pdf',
+    },
+  };
+}
+
+/**
+ * Procesa un PDF de Orden de Compra desde un Buffer en memoria (para la API web).
+ */
+export async function parseOCFromBuffer(buffer: Buffer): Promise<ExtractedOC> {
+  const modelName = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    generationConfig: { responseMimeType: 'application/json', responseSchema: ocSchema },
+  });
+  const prompt = `Analiza el documento adjunto (Orden de Compra / Pedido de Compras).
+Extrae los datos requeridos de forma estricta según el esquema provisto.
+Asegúrate de capturar la fecha en formato YYYY-MM-DD y limpiar los números eliminando separadores de miles y unidades para obtener números válidos en el JSON.`;
+  const text = await generateContentWithRetry(model, [prompt, bufferToPdfPart(buffer)]);
+  return JSON.parse(text) as ExtractedOC;
+}
+
+/**
+ * Procesa un PDF de Remito desde un Buffer en memoria (para la API web).
+ */
+export async function parseRemitoFromBuffer(buffer: Buffer): Promise<ExtractedRemito> {
+  const modelName = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    generationConfig: { responseMimeType: 'application/json', responseSchema: remitoSchema },
+  });
+  const prompt = `Analiza el documento adjunto (Remito / Remito de Entrega).
+Extrae los datos requeridos de forma estricta según el esquema provisto.
+Presta especial atención al número de la Orden de Compra asociada al remito (generalmente antecedido por 'OC#', 'Orden de Compra', 'Pedido', 'OC', etc., ej: 43723584).
+Asegúrate de capturar la fecha en formato YYYY-MM-DD y limpiar las cantidades.`;
+  const text = await generateContentWithRetry(model, [prompt, bufferToPdfPart(buffer)]);
+  return JSON.parse(text) as ExtractedRemito;
+}
+
+/**
  * Helper con reintentos automáticos y backoff exponencial ante errores 429 de cuota.
  */
 async function generateContentWithRetry(

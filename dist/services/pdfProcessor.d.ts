@@ -33,6 +33,14 @@ export interface ExtractedRemito {
  */
 export declare function extractTextFromPdf(filePath: string): Promise<string>;
 /**
+ * Procesa un PDF de Orden de Compra desde un Buffer en memoria (para la API web).
+ */
+export declare function parseOCFromBuffer(buffer: Buffer): Promise<ExtractedOC>;
+/**
+ * Procesa un PDF de Remito desde un Buffer en memoria (para la API web).
+ */
+export declare function parseRemitoFromBuffer(buffer: Buffer): Promise<ExtractedRemito>;
+/**
  * Procesa un PDF de Orden de Compra usando Gemini con entrada multimodal directa.
  */
 export declare function parseOCWithGemini(filePath: string): Promise<ExtractedOC>;

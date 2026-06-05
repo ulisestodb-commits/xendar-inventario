@@ -11,6 +11,7 @@ import multer from 'multer';
 import * as XLSX from 'xlsx';
 import * as dao from '../database/inventoryDao';
 import { getDatabase } from '../database/db';
+import { parseOCFromBuffer, parseRemitoFromBuffer } from '../services/pdfProcessor';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -141,6 +142,151 @@ app.post('/api/importar-excel/confirmar', async (req, res) => {
 
       await db.run('COMMIT');
       res.json({ success: true, oc_creada: ocNum, items_importados: filas.length });
+    } catch (err) {
+      await db.run('ROLLBACK');
+      throw err;
+    }
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ===================== PROCESAR PDF =====================
+
+/**
+ * POST /api/procesar-pdf/preview
+ * Recibe un PDF y el tipo ('OC' o 'REMITO'), lo procesa con Gemini y
+ * devuelve el JSON extraído junto con si el documento ya existe en la DB.
+ */
+app.post('/api/procesar-pdf/preview', upload.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió ningún archivo.' });
+    if (!req.file.originalname.toLowerCase().endsWith('.pdf')) {
+      return res.status(400).json({ error: 'Solo se aceptan archivos PDF.' });
+    }
+
+    const tipo = (req.body.tipo || '').toUpperCase();
+    if (tipo !== 'OC' && tipo !== 'REMITO') {
+      return res.status(400).json({ error: "El campo 'tipo' debe ser 'OC' o 'REMITO'." });
+    }
+
+    const db = await getDatabase();
+    let datos: any;
+
+    if (tipo === 'OC') {
+      datos = await parseOCFromBuffer(req.file.buffer);
+    } else {
+      datos = await parseRemitoFromBuffer(req.file.buffer);
+    }
+
+    // Verificar si ya existe en la DB
+    const existe = await db.get('SELECT numero, tipo FROM documentos WHERE numero = ?', [datos.numero]);
+
+    // Para remitos: verificar si la OC asociada existe
+    let ocAsociadaExiste = null;
+    if (tipo === 'REMITO' && datos.oc_asociada_numero) {
+      const oc = await db.get('SELECT numero FROM documentos WHERE numero = ? AND tipo = ?', [datos.oc_asociada_numero, 'OC']);
+      ocAsociadaExiste = !!oc;
+    }
+
+    res.json({ tipo, datos, yaExiste: !!existe, ocAsociadaExiste });
+
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/procesar-pdf/confirmar-oc
+ * Recibe los datos de una OC (ya validados en el frontend) y los persiste en la DB.
+ */
+app.post('/api/procesar-pdf/confirmar-oc', async (req, res) => {
+  try {
+    const { numero, fecha, items, archivo_origen } = req.body;
+    if (!numero || !fecha || !items?.length) {
+      return res.status(400).json({ error: 'Datos de OC incompletos.' });
+    }
+
+    const db = await getDatabase();
+
+    // Verificar duplicado
+    const existe = await db.get('SELECT 1 FROM documentos WHERE numero = ?', [numero]);
+    if (existe) return res.status(409).json({ error: `La OC ${numero} ya existe en el sistema.` });
+
+    await db.run('BEGIN TRANSACTION');
+    try {
+      await db.run(
+        'INSERT INTO documentos (numero, tipo, fecha, archivo_origen) VALUES (?, ?, ?, ?)',
+        [numero, 'OC', fecha, archivo_origen || 'PDF_WEB']
+      );
+
+      for (const item of items) {
+        await db.run(
+          `INSERT INTO items_oc
+           (documento_numero, item_posicion, codigo_sap_cliente, descripcion, cantidad_original, saldo_pendiente, unidad)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [numero, item.item_posicion, item.codigo_sap_cliente, item.descripcion, item.cantidad_original, item.cantidad_original, item.unidad || 'UN']
+        );
+      }
+
+      await db.run('COMMIT');
+      res.json({ success: true, oc_creada: numero, items_insertados: items.length });
+    } catch (err) {
+      await db.run('ROLLBACK');
+      throw err;
+    }
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * POST /api/procesar-pdf/confirmar-remito
+ * Recibe los datos de un Remito, lo persiste y descuenta el stock de la OC asociada.
+ */
+app.post('/api/procesar-pdf/confirmar-remito', async (req, res) => {
+  try {
+    const { numero, fecha, oc_asociada_numero, items, archivo_origen } = req.body;
+    if (!numero || !fecha || !oc_asociada_numero || !items?.length) {
+      return res.status(400).json({ error: 'Datos de Remito incompletos.' });
+    }
+
+    const db = await getDatabase();
+
+    // Verificar duplicado
+    const existeRemito = await db.get('SELECT 1 FROM documentos WHERE numero = ?', [numero]);
+    if (existeRemito) return res.status(409).json({ error: `El Remito ${numero} ya existe en el sistema.` });
+
+    // Verificar que la OC asociada existe
+    const existeOC = await db.get('SELECT 1 FROM documentos WHERE numero = ? AND tipo = ?', [oc_asociada_numero, 'OC']);
+    if (!existeOC) return res.status(404).json({ error: `La OC ${oc_asociada_numero} no existe en el sistema. Importá la OC primero.` });
+
+    await db.run('BEGIN TRANSACTION');
+    try {
+      await db.run(
+        'INSERT INTO documentos (numero, tipo, fecha, archivo_origen) VALUES (?, ?, ?, ?)',
+        [numero, 'REMITO', fecha, archivo_origen || 'PDF_WEB']
+      );
+
+      for (const item of items) {
+        // Insertar item remito
+        await db.run(
+          `INSERT INTO items_remito
+           (documento_numero, oc_asociada_numero, codigo_sap_interno, codigo_sap_cliente, cantidad_entregada, unidad)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          [numero, oc_asociada_numero, item.codigo_sap_interno || '', item.codigo_sap_cliente, item.cantidad_entregada, item.unidad || 'UN']
+        );
+
+        // Descontar saldo en la OC
+        await db.run(
+          `UPDATE items_oc SET saldo_pendiente = saldo_pendiente - ?
+           WHERE documento_numero = ? AND codigo_sap_cliente = ?`,
+          [item.cantidad_entregada, oc_asociada_numero, item.codigo_sap_cliente]
+        );
+      }
+
+      await db.run('COMMIT');
+      res.json({ success: true, remito_creado: numero, items_insertados: items.length });
     } catch (err) {
       await db.run('ROLLBACK');
       throw err;

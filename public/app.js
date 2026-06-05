@@ -18,11 +18,12 @@ function showView(view) {
     ocs:      ['Órdenes de Compra',     'Gestión de OCs y sus saldos por ítem'],
     remitos:  ['Remitos',               'Historial de entregas y descuentos de stock'],
     importar: ['Importar desde Excel',  'Cargá tu base de datos inicial con códigos RHI, ACN, descripciones y saldos'],
+    pdf:      ['Subir PDF',             'Cargá OCs o Remitos desde archivos PDF — la IA extrae los datos automáticamente'],
   };
   document.getElementById('page-title').textContent = titles[view][0];
   document.getElementById('page-subtitle').textContent = titles[view][1];
 
-  if (view !== 'importar') loadView(view);
+  if (view !== 'importar' && view !== 'pdf') loadView(view);
 }
 
 // ===== IMPORTAR EXCEL =====
@@ -604,3 +605,257 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.connection-status span:last-child').textContent = 'Sin conexión';
   });
 });
+
+// ===== PDF UPLOAD =====
+let pdfTipo = 'OC';         // 'OC' o 'REMITO'
+let pdfPreviewData = null;  // datos extraídos por Gemini
+
+function setPdfTipo(tipo) {
+  pdfTipo = tipo;
+  document.getElementById('btn-tipo-oc').classList.toggle('active', tipo === 'OC');
+  document.getElementById('btn-tipo-remito').classList.toggle('active', tipo === 'REMITO');
+  // Resetear si ya había un PDF cargado
+  resetPdfZone();
+}
+
+function handlePdfDrop(event) {
+  event.preventDefault();
+  document.getElementById('pdf-drop-zone').classList.remove('drag-over');
+  const file = event.dataTransfer.files[0];
+  if (file) processPdfFile(file);
+}
+
+function handlePdfSelect(event) {
+  const file = event.target.files[0];
+  if (file) processPdfFile(file);
+}
+
+async function processPdfFile(file) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) {
+    showToast('Solo se aceptan archivos PDF', 'error');
+    return;
+  }
+
+  // Mostrar spinner de análisis en la drop zone
+  const dz = document.getElementById('pdf-drop-zone');
+  dz.innerHTML = `
+    <div class="pdf-analyzing">
+      <span class="spinner big-spinner"></span>
+      <p>🤖 Analizando <strong>${file.name}</strong> con IA...</p>
+      <p style="font-size:12px;color:var(--text-muted)">Esto puede tardar 10-15 segundos</p>
+    </div>`;
+
+  // Ocultar panel de preview mientras procesa
+  document.getElementById('pdf-preview-panel').style.display = 'none';
+
+  const formData = new FormData();
+  formData.append('archivo', file);
+  formData.append('tipo', pdfTipo);
+
+  try {
+    const res = await fetch(`${API}/procesar-pdf/preview`, { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    pdfPreviewData = { ...data, nombreArchivo: file.name };
+    renderPdfPreview(data, file.name);
+  } catch (e) {
+    showToast('Error procesando PDF: ' + e.message, 'error');
+    resetPdfZone();
+  }
+}
+
+function renderPdfPreview(data, filename) {
+  const { tipo, datos, yaExiste, ocAsociadaExiste } = data;
+  const panel = document.getElementById('pdf-preview-panel');
+  const header = document.getElementById('pdf-doc-header');
+
+  // Restaurar drop zone con ícono de éxito
+  document.getElementById('pdf-drop-zone').innerHTML = `
+    <div class="drop-icon">✅</div>
+    <p class="drop-title">${filename}</p>
+    <p class="drop-sub">PDF analizado correctamente</p>
+    <button class="btn btn-secondary" style="margin-top:12px" onclick="resetPdfZone()">Cambiar archivo</button>`;
+
+  // --- Header del documento ---
+  let headerHtml = `<div class="pdf-doc-meta">`;
+
+  if (tipo === 'OC') {
+    headerHtml += `
+      <div class="pdf-doc-meta-item">
+        <span class="label">Tipo</span>
+        <span class="value">📋 Orden de Compra</span>
+      </div>
+      <div class="pdf-doc-meta-item">
+        <span class="label">N° OC</span>
+        <span class="value oc-num">${datos.numero}</span>
+      </div>
+      <div class="pdf-doc-meta-item">
+        <span class="label">Fecha</span>
+        <span class="value">${formatDate(datos.fecha)}</span>
+      </div>
+      <div class="pdf-doc-meta-item">
+        <span class="label">Ítems</span>
+        <span class="value">${datos.items?.length || 0}</span>
+      </div>`;
+  } else {
+    headerHtml += `
+      <div class="pdf-doc-meta-item">
+        <span class="label">Tipo</span>
+        <span class="value">🚚 Remito</span>
+      </div>
+      <div class="pdf-doc-meta-item">
+        <span class="label">N° Remito</span>
+        <span class="value oc-num">${datos.numero}</span>
+      </div>
+      <div class="pdf-doc-meta-item">
+        <span class="label">Fecha</span>
+        <span class="value">${formatDate(datos.fecha)}</span>
+      </div>
+      <div class="pdf-doc-meta-item">
+        <span class="label">OC Asociada</span>
+        <span class="value oc-num">${datos.oc_asociada_numero}</span>
+      </div>
+      <div class="pdf-doc-meta-item">
+        <span class="label">Ítems</span>
+        <span class="value">${datos.items?.length || 0}</span>
+      </div>`;
+  }
+  headerHtml += `</div>`;
+
+  // Alertas de validación
+  if (yaExiste) {
+    headerHtml += `
+      <div class="pdf-duplicate-alert">
+        ⚠️ <strong>Este documento ya existe en el sistema.</strong> No se puede volver a cargar.
+      </div>`;
+    // Deshabilitar botón confirmar
+    setTimeout(() => {
+      const btn = document.getElementById('pdf-confirm-btn');
+      if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed'; }
+    }, 100);
+  } else {
+    setTimeout(() => {
+      const btn = document.getElementById('pdf-confirm-btn');
+      if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+    }, 100);
+  }
+
+  if (tipo === 'REMITO') {
+    if (ocAsociadaExiste === false) {
+      headerHtml += `
+        <div class="pdf-oc-missing-alert">
+          ⚠️ La OC <strong>${datos.oc_asociada_numero}</strong> no existe en el sistema. Importá la OC primero antes de cargar este remito.
+        </div>`;
+      setTimeout(() => {
+        const btn = document.getElementById('pdf-confirm-btn');
+        if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; btn.style.cursor = 'not-allowed'; }
+      }, 100);
+    } else if (ocAsociadaExiste === true) {
+      headerHtml += `
+        <div style="margin-top:12px">
+          <span class="pdf-oc-ok-badge">✓ OC ${datos.oc_asociada_numero} encontrada en el sistema</span>
+        </div>`;
+    }
+  }
+
+  header.innerHTML = headerHtml;
+
+  // --- Tabla de ítems ---
+  document.getElementById('pdf-preview-title').textContent =
+    `${datos.items?.length || 0} ítems detectados`;
+
+  if (tipo === 'OC') {
+    document.getElementById('pdf-preview-thead').innerHTML = `
+      <tr>
+        <th>Posición</th>
+        <th>Código SAP Cliente</th>
+        <th>Descripción</th>
+        <th>Cantidad</th>
+        <th>Unidad</th>
+      </tr>`;
+    document.getElementById('pdf-preview-tbody').innerHTML = (datos.items || []).map(it => `
+      <tr>
+        <td style="color:var(--text-muted)">${it.item_posicion}</td>
+        <td><span class="badge badge-accent">${it.codigo_sap_cliente}</span></td>
+        <td style="max-width:280px">${it.descripcion}</td>
+        <td class="num">${fmt(it.cantidad_original)}</td>
+        <td>${it.unidad}</td>
+      </tr>`).join('');
+  } else {
+    document.getElementById('pdf-preview-thead').innerHTML = `
+      <tr>
+        <th>Cód. Interno</th>
+        <th>Cód. Cliente</th>
+        <th>Descripción</th>
+        <th>Cant. Entregada</th>
+        <th>Unidad</th>
+      </tr>`;
+    document.getElementById('pdf-preview-tbody').innerHTML = (datos.items || []).map(it => `
+      <tr>
+        <td><span class="badge badge-accent">${it.codigo_sap_interno || '—'}</span></td>
+        <td><span class="badge badge-accent">${it.codigo_sap_cliente}</span></td>
+        <td style="max-width:280px">${it.descripcion}</td>
+        <td class="num">${fmt(it.cantidad_entregada)}</td>
+        <td>${it.unidad}</td>
+      </tr>`).join('');
+  }
+
+  panel.style.display = 'block';
+}
+
+async function confirmarPdf() {
+  if (!pdfPreviewData) return;
+  const { tipo, datos, nombreArchivo } = pdfPreviewData;
+
+  const tipoLabel = tipo === 'OC' ? 'Orden de Compra' : 'Remito';
+  const docNum = datos.numero;
+
+  showConfirm(
+    `Confirmar ${tipoLabel}`,
+    `¿Guardar el documento <strong>${docNum}</strong> con <strong>${datos.items?.length || 0} ítems</strong>?
+     ${tipo === 'REMITO' ? `<br><br>⚠️ Se descontará el stock de la OC <strong>${datos.oc_asociada_numero}</strong>.` : ''}`,
+    async () => {
+      try {
+        let res;
+        if (tipo === 'OC') {
+          res = await apiFetch('/procesar-pdf/confirmar-oc', 'POST', {
+            numero: datos.numero,
+            fecha: datos.fecha,
+            items: datos.items,
+            archivo_origen: nombreArchivo,
+          });
+          showToast(`✅ OC ${res.oc_creada} guardada con ${res.items_insertados} ítems`, 'success');
+          resetPdfZone();
+          setTimeout(() => showView('ocs'), 1500);
+        } else {
+          res = await apiFetch('/procesar-pdf/confirmar-remito', 'POST', {
+            numero: datos.numero,
+            fecha: datos.fecha,
+            oc_asociada_numero: datos.oc_asociada_numero,
+            items: datos.items,
+            archivo_origen: nombreArchivo,
+          });
+          showToast(`✅ Remito ${res.remito_creado} guardado. Stock descontado de OC ${datos.oc_asociada_numero}`, 'success');
+          resetPdfZone();
+          setTimeout(() => showView('remitos'), 1500);
+        }
+      } catch (e) {
+        showToast('Error guardando: ' + e.message, 'error');
+      }
+    }
+  );
+}
+
+function resetPdfZone() {
+  pdfPreviewData = null;
+  document.getElementById('pdf-preview-panel').style.display = 'none';
+  const fi = document.getElementById('pdf-file-input');
+  if (fi) fi.value = '';
+  document.getElementById('pdf-drop-zone').innerHTML = `
+    <div class="drop-icon">📄</div>
+    <p class="drop-title">Arrastrá el PDF aquí</p>
+    <p class="drop-sub">o hacé clic para seleccionar</p>
+    <input type="file" id="pdf-file-input" accept=".pdf" style="display:none" onchange="handlePdfSelect(event)" />
+    <button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('pdf-file-input').click()">Seleccionar PDF</button>`;
+}
