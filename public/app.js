@@ -982,11 +982,11 @@ async function abrirModalNuevoRemito() {
   document.getElementById('nr-items-tbody').innerHTML    = '';
   document.getElementById('nr-items-section').style.display = 'none';
 
-  // Cargar OCs con saldo
+  // Cargar todas las OCs cargadas en el sistema
   try {
-    _ocsConSaldo = await apiFetch('/ocs/con-saldo');
+    _ocsConSaldo = await apiFetch('/ocs');
     document.getElementById('nr-oc-status').textContent =
-      `${_ocsConSaldo.length} OCs con saldo disponible`;
+      `${_ocsConSaldo.length} OCs cargadas en el sistema`;
   } catch (e) {
     showToast('Error cargando OCs: ' + e.message, 'error');
   }
@@ -1012,11 +1012,15 @@ function filtrarOCRemito(query) {
     return;
   }
 
-  dropdown.innerHTML = lista.slice(0, 12).map(oc => `
+  dropdown.innerHTML = lista.slice(0, 12).map(oc => {
+    const saldo = oc.total_saldo_pendiente ?? oc.saldo_total ?? 0;
+    const saldoColor = saldo > 0 ? 'var(--success)' : 'var(--text-muted)';
+    return `
     <div class="ac-item" onclick="seleccionarOCRemito('${escHtml(oc.numero)}')">
       <span class="ac-main">${oc.numero}</span>
-      <span class="ac-sub">${formatDate(oc.fecha)} &nbsp;·&nbsp; ${oc.total_items} ítems &nbsp;·&nbsp; Saldo: ${fmt(oc.saldo_total)}</span>
-    </div>`).join('');
+      <span class="ac-sub">${formatDate(oc.fecha)} &nbsp;·&nbsp; ${oc.total_items} ítems &nbsp;·&nbsp; <span style="color:${saldoColor}">Saldo: ${fmt(saldo)}</span></span>
+    </div>`;
+  }).join('');
   dropdown.style.display = 'block';
 }
 
