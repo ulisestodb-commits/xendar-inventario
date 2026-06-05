@@ -859,3 +859,333 @@ function resetPdfZone() {
     <input type="file" id="pdf-file-input" accept=".pdf" style="display:none" onchange="handlePdfSelect(event)" />
     <button class="btn btn-primary" style="margin-top:16px" onclick="document.getElementById('pdf-file-input').click()">Seleccionar PDF</button>`;
 }
+
+// ===== CERRAR AUTOCOMPLETE AL HACER CLICK AFUERA =====
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.ac-wrapper')) {
+    document.querySelectorAll('.ac-dropdown').forEach(d => d.style.display = 'none');
+  }
+});
+
+// =========================================================
+// ===== NUEVA OC MANUAL ===================================
+// =========================================================
+let _ocItemsManual = [];
+
+function abrirModalNuevaOC() {
+  _ocItemsManual = [];
+  document.getElementById('noc-numero').value = '';
+  document.getElementById('noc-fecha').value = new Date().toISOString().split('T')[0];
+  document.getElementById('noc-items-tbody').innerHTML = '';
+  document.getElementById('noc-item-count').textContent = '0';
+  openModal('modal-nueva-oc');
+  agregarFilaOC(); // Empezar con una fila vacía
+}
+
+function cerrarNuevaOC() {
+  _ocItemsManual = [];
+  closeModal('modal-nueva-oc');
+}
+
+function _renderFilasOC() {
+  const tbody = document.getElementById('noc-items-tbody');
+  tbody.innerHTML = '';
+  _ocItemsManual.forEach((item, idx) => {
+    const pos = (idx + 1) * 10;
+    item.pos = pos;
+    const tr = document.createElement('tr');
+    tr.id = `noc-row-${idx}`;
+    const unidades = ['UN','KG','TN','LT','MT','M2','ML'];
+    const opts = unidades.map(u => `<option value="${u}"${item.unidad===u?' selected':''}>${u}</option>`).join('');
+    tr.innerHTML = `
+      <td style="color:var(--accent);font-weight:700;font-size:13px;text-align:center">${pos}</td>
+      <td><input class="inline-input" style="width:130px" type="text" value="${escHtml(item.codigo_sap_cliente)}" placeholder="Cód. SAP" oninput="_ocItemsManual[${idx}].codigo_sap_cliente=this.value" /></td>
+      <td><input class="inline-input" style="width:100%;min-width:200px" type="text" value="${escHtml(item.descripcion)}" placeholder="Descripción del producto" oninput="_ocItemsManual[${idx}].descripcion=this.value" /></td>
+      <td><input class="inline-input" style="width:110px" type="number" value="${item.cantidad_original||''}" placeholder="0" min="0.001" step="0.001" oninput="_ocItemsManual[${idx}].cantidad_original=this.value" /></td>
+      <td><select class="inline-select" onchange="_ocItemsManual[${idx}].unidad=this.value">${opts}</select></td>
+      <td><button class="btn-icon btn-icon-danger" onclick="_eliminarFilaOC(${idx})" title="Eliminar">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('noc-item-count').textContent = _ocItemsManual.length;
+}
+
+function agregarFilaOC() {
+  if (_ocItemsManual.length >= 30) {
+    showToast('Máximo 30 ítems (hasta posición 300)', 'error');
+    return;
+  }
+  _ocItemsManual.push({ pos: 0, codigo_sap_cliente: '', descripcion: '', cantidad_original: '', unidad: 'UN' });
+  _renderFilasOC();
+  // Scroll al final de la tabla
+  const wrapper = document.querySelector('#modal-nueva-oc .table-wrapper');
+  if (wrapper) setTimeout(() => { wrapper.scrollTop = wrapper.scrollHeight; }, 50);
+}
+
+function _eliminarFilaOC(idx) {
+  _ocItemsManual.splice(idx, 1);
+  _renderFilasOC();
+}
+
+async function guardarNuevaOC() {
+  const numero = document.getElementById('noc-numero').value.trim();
+  const fecha  = document.getElementById('noc-fecha').value;
+
+  if (!numero) { showToast('Ingresá el número de OC', 'error'); return; }
+  if (!fecha)  { showToast('Ingresá la fecha',         'error'); return; }
+
+  const items = _ocItemsManual
+    .filter(it => it.codigo_sap_cliente.trim() && parseFloat(it.cantidad_original) > 0)
+    .map((it, idx) => ({
+      item_posicion:    (idx + 1) * 10,
+      codigo_sap_cliente: it.codigo_sap_cliente.trim(),
+      descripcion:       it.descripcion.trim(),
+      cantidad_original: parseFloat(it.cantidad_original),
+      unidad:            it.unidad || 'UN',
+    }));
+
+  if (!items.length) { showToast('Agregá al menos un ítem con código y cantidad', 'error'); return; }
+
+  try {
+    const res = await apiFetch('/procesar-pdf/confirmar-oc', 'POST', {
+      numero, fecha, items, archivo_origen: 'MANUAL',
+    });
+    showToast(`✅ OC ${res.oc_creada} guardada con ${res.items_insertados} ítems`, 'success');
+    cerrarNuevaOC();
+    loadOCs();
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+// =========================================================
+// ===== NUEVO REMITO MANUAL ================================
+// =========================================================
+let _remitoItemsManual = [];
+let _ocsConSaldo       = [];
+let _prodsPorOC        = [];   // productos cargados de la OC seleccionada
+let _ocSeleccionada    = null;
+
+// Cache de últimos resultados del autocomplete de producto (por fila)
+const _acProdCache = {};
+
+async function abrirModalNuevoRemito() {
+  _remitoItemsManual = [];
+  _ocSeleccionada    = null;
+  _prodsPorOC        = [];
+
+  document.getElementById('nr-numero').value   = '';
+  document.getElementById('nr-fecha').value    = new Date().toISOString().split('T')[0];
+  document.getElementById('nr-oc-input').value = '';
+  document.getElementById('nr-oc-seleccionada').value = '';
+  document.getElementById('nr-oc-status').textContent = '';
+  document.getElementById('nr-oc-dropdown').style.display = 'none';
+  document.getElementById('nr-items-tbody').innerHTML    = '';
+  document.getElementById('nr-items-section').style.display = 'none';
+
+  // Cargar OCs con saldo
+  try {
+    _ocsConSaldo = await apiFetch('/ocs/con-saldo');
+    document.getElementById('nr-oc-status').textContent =
+      `${_ocsConSaldo.length} OCs con saldo disponible`;
+  } catch (e) {
+    showToast('Error cargando OCs: ' + e.message, 'error');
+  }
+  openModal('modal-nuevo-remito');
+}
+
+function cerrarNuevoRemito() {
+  _remitoItemsManual = [];
+  closeModal('modal-nuevo-remito');
+}
+
+function filtrarOCRemito(query) {
+  const dropdown = document.getElementById('nr-oc-dropdown');
+  const q = query.toLowerCase().trim();
+
+  const lista = q
+    ? _ocsConSaldo.filter(oc => oc.numero.toLowerCase().includes(q))
+    : _ocsConSaldo;
+
+  if (!lista.length) {
+    dropdown.innerHTML = '<div class="ac-no-results">Sin OCs con saldo disponible</div>';
+    dropdown.style.display = 'block';
+    return;
+  }
+
+  dropdown.innerHTML = lista.slice(0, 12).map(oc => `
+    <div class="ac-item" onclick="seleccionarOCRemito('${escHtml(oc.numero)}')">
+      <span class="ac-main">${oc.numero}</span>
+      <span class="ac-sub">${formatDate(oc.fecha)} &nbsp;·&nbsp; ${oc.total_items} ítems &nbsp;·&nbsp; Saldo: ${fmt(oc.saldo_total)}</span>
+    </div>`).join('');
+  dropdown.style.display = 'block';
+}
+
+async function seleccionarOCRemito(numero) {
+  document.getElementById('nr-oc-input').value = numero;
+  document.getElementById('nr-oc-seleccionada').value = numero;
+  document.getElementById('nr-oc-dropdown').style.display = 'none';
+  document.getElementById('nr-oc-status').textContent = `Cargando productos de OC ${numero}...`;
+
+  _ocSeleccionada    = numero;
+  _remitoItemsManual = [];
+  document.getElementById('nr-items-tbody').innerHTML = '';
+  document.getElementById('nr-items-section').style.display = 'none';
+
+  try {
+    _prodsPorOC = await apiFetch(`/ocs/${encodeURIComponent(numero)}/productos`);
+    document.getElementById('nr-oc-status').textContent =
+      `✅ ${_prodsPorOC.length} productos con saldo disponible en OC ${numero}`;
+    document.getElementById('nr-items-section').style.display = 'block';
+    agregarFilaRemito();
+  } catch (e) {
+    document.getElementById('nr-oc-status').textContent = 'Error cargando productos';
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+function agregarFilaRemito() {
+  const idx = _remitoItemsManual.length;
+  _remitoItemsManual.push({
+    codigo_sap_cliente: '', codigo_sap_interno: '',
+    descripcion: '', cantidad_entregada: '', unidad: 'UN', saldo_max: null,
+  });
+
+  const tr = document.createElement('tr');
+  tr.id = `nr-row-${idx}`;
+  tr.innerHTML = `
+    <td style="position:relative;min-width:260px">
+      <div class="ac-wrapper">
+        <input class="ac-input" id="nr-prod-${idx}" type="text" placeholder="Escribí la descripción del producto..."
+               oninput="filtrarProdRemito(${idx},this.value)" onfocus="filtrarProdRemito(${idx},this.value)" autocomplete="off" />
+        <div class="ac-dropdown" id="nr-drop-${idx}"></div>
+      </div>
+    </td>
+    <td><span class="badge badge-accent" id="nr-rhim-${idx}" style="min-width:80px">—</span></td>
+    <td><span class="badge badge-accent" id="nr-acn-${idx}"  style="min-width:80px">—</span></td>
+    <td class="num num-yellow" id="nr-disp-${idx}" style="white-space:nowrap">—</td>
+    <td><input class="inline-input" id="nr-cant-${idx}" type="number" placeholder="0" min="0.001" step="0.001" style="width:110px"
+              oninput="_remitoItemsManual[${idx}].cantidad_entregada=this.value" /></td>
+    <td id="nr-und-${idx}" style="color:var(--text-muted);font-size:12px">—</td>
+    <td><button class="btn-icon btn-icon-danger" onclick="_eliminarFilaRemito(${idx})" title="Eliminar">✕</button></td>`;
+  document.getElementById('nr-items-tbody').appendChild(tr);
+
+  // Scroll al final
+  const wrapper = document.querySelector('#modal-nuevo-remito .table-wrapper');
+  if (wrapper) setTimeout(() => { wrapper.scrollTop = wrapper.scrollHeight; }, 50);
+}
+
+function filtrarProdRemito(idx, query) {
+  const dropdown = document.getElementById(`nr-drop-${idx}`);
+  const q = query.toLowerCase().trim();
+
+  if (!q || q.length < 1) { dropdown.style.display = 'none'; return; }
+
+  const matches = _prodsPorOC.filter(p =>
+    (p.descripcion        || '').toLowerCase().includes(q) ||
+    (p.codigo_sap_cliente || '').toLowerCase().includes(q) ||
+    (p.codigo_sap_interno || '').toLowerCase().includes(q)
+  );
+
+  if (!matches.length) {
+    dropdown.innerHTML = '<div class="ac-no-results">Sin productos que coincidan</div>';
+    dropdown.style.display = 'block';
+    return;
+  }
+
+  _acProdCache[idx] = matches.slice(0, 10);
+  dropdown.innerHTML = _acProdCache[idx].map((p, i) => `
+    <div class="ac-item" onclick="seleccionarProdRemito(${idx},${i})">
+      <span class="ac-main">${p.descripcion || '—'}</span>
+      <span class="ac-sub">ACN: ${p.codigo_sap_cliente} &nbsp;·&nbsp; RHIM: ${p.codigo_sap_interno||'—'} &nbsp;·&nbsp; Disponible: ${fmt(p.saldo_pendiente)} ${p.unidad}</span>
+    </div>`).join('');
+  dropdown.style.display = 'block';
+}
+
+function seleccionarProdRemito(idx, prodIdx) {
+  const p = _acProdCache[idx]?.[prodIdx];
+  if (!p) return;
+
+  document.getElementById(`nr-prod-${idx}`).value = p.descripcion || '';
+  document.getElementById(`nr-drop-${idx}`).style.display = 'none';
+  document.getElementById(`nr-rhim-${idx}`).textContent  = p.codigo_sap_interno || '—';
+  document.getElementById(`nr-acn-${idx}`).textContent   = p.codigo_sap_cliente;
+  document.getElementById(`nr-disp-${idx}`).textContent  = `${fmt(p.saldo_pendiente)} ${p.unidad}`;
+  document.getElementById(`nr-und-${idx}`).textContent   = p.unidad;
+
+  const cantInput = document.getElementById(`nr-cant-${idx}`);
+  cantInput.max   = p.saldo_pendiente;
+
+  Object.assign(_remitoItemsManual[idx], {
+    codigo_sap_cliente: p.codigo_sap_cliente,
+    codigo_sap_interno: p.codigo_sap_interno || '',
+    descripcion:        p.descripcion || '',
+    unidad:             p.unidad,
+    saldo_max:          p.saldo_pendiente,
+  });
+}
+
+function _eliminarFilaRemito(idx) {
+  // Quitar del array y re-render completando los índices correctos
+  _remitoItemsManual.splice(idx, 1);
+  const snapshot = [..._remitoItemsManual];
+  _remitoItemsManual = [];
+  document.getElementById('nr-items-tbody').innerHTML = '';
+
+  snapshot.forEach(item => {
+    const newIdx = _remitoItemsManual.length;
+    agregarFilaRemito(); // crea fila vacía y empuja al array
+    if (item.codigo_sap_cliente) {
+      // Restaurar datos del producto seleccionado
+      _acProdCache[newIdx] = [{ ...item, saldo_pendiente: item.saldo_max }];
+      seleccionarProdRemito(newIdx, 0);
+      const cantEl = document.getElementById(`nr-cant-${newIdx}`);
+      if (cantEl) { cantEl.value = item.cantidad_entregada; _remitoItemsManual[newIdx].cantidad_entregada = item.cantidad_entregada; }
+    }
+  });
+}
+
+async function guardarNuevoRemito() {
+  const numero = document.getElementById('nr-numero').value.trim();
+  const fecha  = document.getElementById('nr-fecha').value;
+  const ocNum  = document.getElementById('nr-oc-seleccionada').value;
+
+  if (!numero) { showToast('Ingresá el número de remito', 'error'); return; }
+  if (!fecha)  { showToast('Ingresá la fecha',            'error'); return; }
+  if (!ocNum)  { showToast('Seleccioná una OC asociada',  'error'); return; }
+
+  const items = _remitoItemsManual.filter(it =>
+    it.codigo_sap_cliente && parseFloat(it.cantidad_entregada) > 0
+  );
+  if (!items.length) { showToast('Agregá al menos un ítem con producto y cantidad', 'error'); return; }
+
+  // Validar que la cantidad no supere el saldo disponible
+  for (const item of items) {
+    const cant = parseFloat(item.cantidad_entregada);
+    if (item.saldo_max !== null && cant > item.saldo_max) {
+      showToast(`"${item.descripcion}": cantidad (${fmt(cant)}) supera el saldo disponible (${fmt(item.saldo_max)})`, 'error');
+      return;
+    }
+  }
+
+  const itemsFormatted = items.map(it => ({
+    codigo_sap_cliente: it.codigo_sap_cliente,
+    codigo_sap_interno: it.codigo_sap_interno || '',
+    descripcion:        it.descripcion,
+    cantidad_entregada: parseFloat(it.cantidad_entregada),
+    unidad:             it.unidad || 'UN',
+  }));
+
+  try {
+    const res = await apiFetch('/procesar-pdf/confirmar-remito', 'POST', {
+      numero, fecha,
+      oc_asociada_numero: ocNum,
+      items: itemsFormatted,
+      archivo_origen: 'MANUAL',
+    });
+    showToast(`✅ Remito ${res.remito_creado} guardado. Stock descontado de OC ${ocNum}`, 'success');
+    cerrarNuevoRemito();
+    loadRemitos();
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}

@@ -100,8 +100,11 @@
       <div class="card">
         <div class="card-header">
           <h2>Órdenes de Compra</h2>
-          <div class="search-box">
-            <input type="text" id="ocs-search" placeholder="Buscar OC..." oninput="filterTable('ocs-table', this.value)" />
+          <div style="display:flex;gap:10px;align-items:center">
+            <div class="search-box">
+              <input type="text" id="ocs-search" placeholder="Buscar OC..." oninput="filterTable('ocs-table', this.value)" />
+            </div>
+            <button class="btn btn-primary" id="btn-nueva-oc" onclick="abrirModalNuevaOC()">✏️ Nueva OC</button>
           </div>
         </div>
         <div class="table-wrapper">
@@ -275,8 +278,11 @@
       <div class="card">
         <div class="card-header">
           <h2>Remitos</h2>
-          <div class="search-box">
-            <input type="text" id="remitos-search" placeholder="Buscar remito..." oninput="filterTable('remitos-table', this.value)" />
+          <div style="display:flex;gap:10px;align-items:center">
+            <div class="search-box">
+              <input type="text" id="remitos-search" placeholder="Buscar remito..." oninput="filterTable('remitos-table', this.value)" />
+            </div>
+            <button class="btn btn-primary" id="btn-nuevo-remito" onclick="abrirModalNuevoRemito()">✏️ Nuevo Remito</button>
           </div>
         </div>
         <div class="table-wrapper">
@@ -453,6 +459,117 @@
             <tbody id="modal-stock-oc-tbody"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL NUEVA OC MANUAL -->
+  <div class="modal-overlay" id="modal-nueva-oc" onclick="if(event.target===this)cerrarNuevaOC()">
+    <div class="modal modal-xl" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3>Nueva Orden de Compra</h3>
+          <span class="modal-subtitle">Carga manual — posiciones 10 a 300 (máx. 30 ítems)</span>
+        </div>
+        <button class="modal-close" onclick="cerrarNuevaOC()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row" style="margin-bottom:20px">
+          <div class="form-group">
+            <label>N° de OC *</label>
+            <input type="text" id="noc-numero" placeholder="Ej: 43730624" />
+          </div>
+          <div class="form-group">
+            <label>Fecha *</label>
+            <input type="date" id="noc-fecha" />
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <h4 style="font-size:13px;font-weight:600;color:var(--text-secondary)">Ítems &nbsp;<span id="noc-item-count" style="color:var(--accent)">0</span><span style="color:var(--text-muted)">/30</span></h4>
+          <button class="btn btn-secondary" onclick="agregarFilaOC()">+ Agregar ítem</button>
+        </div>
+        <div class="table-wrapper" style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:60px">Pos.</th>
+                <th style="min-width:140px">Código SAP Cliente *</th>
+                <th>Descripción</th>
+                <th style="width:120px">Cantidad *</th>
+                <th style="width:100px">Unidad *</th>
+                <th style="width:40px"></th>
+              </tr>
+            </thead>
+            <tbody id="noc-items-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="cerrarNuevaOC()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarNuevaOC()">✅ Guardar OC</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL NUEVO REMITO MANUAL -->
+  <div class="modal-overlay" id="modal-nuevo-remito" onclick="if(event.target===this)cerrarNuevoRemito()">
+    <div class="modal modal-xl" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div>
+          <h3>Nuevo Remito</h3>
+          <span class="modal-subtitle">Carga manual — el stock se descuenta automáticamente de la OC</span>
+        </div>
+        <button class="modal-close" onclick="cerrarNuevoRemito()">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Datos generales -->
+        <div class="form-row" style="margin-bottom:20px">
+          <div class="form-group">
+            <label>N° de Remito *</label>
+            <input type="text" id="nr-numero" placeholder="Ej: 0015R00017623" />
+          </div>
+          <div class="form-group">
+            <label>Fecha *</label>
+            <input type="date" id="nr-fecha" />
+          </div>
+        </div>
+        <!-- OC Asociada autocomplete -->
+        <div class="form-group" style="margin-bottom:24px">
+          <label>OC Asociada * <span style="color:var(--text-muted);font-weight:400">(solo OCs con saldo disponible)</span></label>
+          <div class="ac-wrapper">
+            <input type="text" id="nr-oc-input" class="ac-input" placeholder="Escribí el número de OC..." oninput="filtrarOCRemito(this.value)" onfocus="filtrarOCRemito(this.value)" autocomplete="off" />
+            <div class="ac-dropdown" id="nr-oc-dropdown"></div>
+          </div>
+          <input type="hidden" id="nr-oc-seleccionada" />
+          <p id="nr-oc-status" style="font-size:12px;color:var(--text-muted);margin-top:6px"></p>
+        </div>
+        <!-- Ítems (visible sólo con OC seleccionada) -->
+        <div id="nr-items-section" style="display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <h4 style="font-size:13px;font-weight:600;color:var(--text-secondary)">Ítems del remito</h4>
+            <button class="btn btn-secondary" onclick="agregarFilaRemito()">+ Agregar ítem</button>
+          </div>
+          <div class="table-wrapper" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
+            <table>
+              <thead>
+                <tr>
+                  <th style="min-width:260px">Descripción del producto *</th>
+                  <th style="min-width:110px">Cód. RHIM</th>
+                  <th style="min-width:110px">Cód. ACN</th>
+                  <th>Disponible</th>
+                  <th style="width:130px">Cant. entregada *</th>
+                  <th style="width:70px">Unidad</th>
+                  <th style="width:40px"></th>
+                </tr>
+              </thead>
+              <tbody id="nr-items-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="cerrarNuevoRemito()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarNuevoRemito()">✅ Guardar Remito</button>
       </div>
     </div>
   </div>

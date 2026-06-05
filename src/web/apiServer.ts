@@ -333,6 +333,51 @@ app.get('/api/stock/:codigo/por-oc', async (req, res) => {
 
 // ===================== OCs =====================
 
+// GET /api/ocs/con-saldo — OCs que tienen al menos un ítem con saldo pendiente > 0
+// IMPORTANTE: debe ir ANTES de /api/ocs/:numero para que Express no lo confunda
+app.get('/api/ocs/con-saldo', async (req, res) => {
+  try {
+    const db = await getDatabase();
+    const rows = await db.all(`
+      SELECT d.numero, d.fecha,
+             COUNT(io.id) as total_items,
+             ROUND(SUM(io.saldo_pendiente), 3) as saldo_total
+      FROM documentos d
+      JOIN items_oc io ON d.numero = io.documento_numero
+      WHERE d.tipo = 'OC' AND io.saldo_pendiente > 0
+      GROUP BY d.numero
+      ORDER BY d.fecha DESC
+    `);
+    res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/ocs/:numero/productos — productos disponibles (saldo > 0) de una OC específica
+app.get('/api/ocs/:numero/productos', async (req, res) => {
+  try {
+    const db = await getDatabase();
+    const rows = await db.all(`
+      SELECT
+        io.id,
+        io.codigo_sap_cliente,
+        io.descripcion,
+        ROUND(io.saldo_pendiente, 3)  AS saldo_pendiente,
+        ROUND(io.cantidad_original, 3) AS cantidad_original,
+        io.unidad,
+        COALESCE(m.codigo_sap_interno, '') AS codigo_sap_interno
+      FROM items_oc io
+      LEFT JOIN mapeo_codigos_sap m ON io.codigo_sap_cliente = m.codigo_sap_cliente
+      WHERE io.documento_numero = ? AND io.saldo_pendiente > 0
+      ORDER BY io.item_posicion
+    `, [req.params.numero]);
+    res.json(rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/ocs', async (req, res) => {
   try {
     const db = await getDatabase();
