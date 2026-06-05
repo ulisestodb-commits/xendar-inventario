@@ -36,11 +36,10 @@ const ocSchema: Schema = {
         properties: {
           item_posicion: { type: SchemaType.INTEGER, description: "Número de item o posición (ej. 10, 20)." },
           codigo_sap_cliente: { type: SchemaType.STRING, description: "Código de artículo de SAP del cliente." },
-          descripcion: { type: SchemaType.STRING, description: "Descripción detallada del producto." },
           cantidad_original: { type: SchemaType.NUMBER, description: "Cantidad total de la orden." },
           unidad: { type: SchemaType.STRING, description: "Unidad de medida (ej. UN, KG, TN)." }
         },
-        required: ["item_posicion", "codigo_sap_cliente", "descripcion", "cantidad_original", "unidad"]
+        required: ["item_posicion", "codigo_sap_cliente", "cantidad_original", "unidad"]
       }
     }
   },
@@ -87,7 +86,7 @@ export interface ExtractedOC {
   items: {
     item_posicion: number;
     codigo_sap_cliente: string;
-    descripcion: string;
+    descripcion: string; // Será completado por el backend o string vacío
     cantidad_original: number;
     unidad: string;
   }[];

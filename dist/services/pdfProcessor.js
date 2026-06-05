@@ -75,11 +75,10 @@ const ocSchema = {
                 properties: {
                     item_posicion: { type: generative_ai_1.SchemaType.INTEGER, description: "Número de item o posición (ej. 10, 20)." },
                     codigo_sap_cliente: { type: generative_ai_1.SchemaType.STRING, description: "Código de artículo de SAP del cliente." },
-                    descripcion: { type: generative_ai_1.SchemaType.STRING, description: "Descripción detallada del producto." },
                     cantidad_original: { type: generative_ai_1.SchemaType.NUMBER, description: "Cantidad total de la orden." },
                     unidad: { type: generative_ai_1.SchemaType.STRING, description: "Unidad de medida (ej. UN, KG, TN)." }
                 },
-                required: ["item_posicion", "codigo_sap_cliente", "descripcion", "cantidad_original", "unidad"]
+                required: ["item_posicion", "codigo_sap_cliente", "cantidad_original", "unidad"]
             }
         }
     },

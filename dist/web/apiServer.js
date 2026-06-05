@@ -179,6 +179,13 @@ app.post('/api/procesar-pdf/preview', upload.single('archivo'), async (req, res)
         let datos;
         if (tipo === 'OC') {
             datos = await (0, pdfProcessor_1.parseOCFromBuffer)(req.file.buffer);
+            // Enriquecer ítems de OC con la descripción del maestro de productos (EXCEL cargado)
+            for (const item of datos.items) {
+                if (item.codigo_sap_cliente) {
+                    const maestro = await db.get('SELECT descripcion FROM mapeo_codigos_sap WHERE codigo_sap_cliente = ?', [item.codigo_sap_cliente]);
+                    item.descripcion = maestro?.descripcion || 'Producto no encontrado en maestro';
+                }
+            }
         }
         else {
             datos = await (0, pdfProcessor_1.parseRemitoFromBuffer)(req.file.buffer);
@@ -310,6 +317,28 @@ app.get('/api/stock/:codigo/por-oc', async (req, res) => {
     }
 });
 // ===================== OCs =====================
+/**
+ * GET /api/productos/buscar
+ * Busca productos en el maestro (mapeo_codigos_sap) por descripción o código.
+ * Usado para autocompletar en la carga manual de OC.
+ */
+app.get('/api/productos/buscar', async (req, res) => {
+    try {
+        const q = req.query.q || '';
+        if (q.length < 2)
+            return res.json([]);
+        const db = await (0, db_1.getDatabase)();
+        const query = `%${q}%`;
+        const productos = await db.all(`SELECT codigo_sap_cliente, codigo_sap_interno, descripcion
+       FROM mapeo_codigos_sap
+       WHERE descripcion LIKE ? OR codigo_sap_cliente LIKE ? OR codigo_sap_interno LIKE ?
+       LIMIT 20`, [query, query, query]);
+        res.json(productos);
+    }
+    catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 // GET /api/ocs/con-saldo — OCs que tienen al menos un ítem con saldo pendiente > 0
 // IMPORTANTE: debe ir ANTES de /api/ocs/:numero para que Express no lo confunda
 app.get('/api/ocs/con-saldo', async (req, res) => {

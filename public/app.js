@@ -899,8 +899,13 @@ function _renderFilasOC() {
     const opts = unidades.map(u => `<option value="${u}"${item.unidad===u?' selected':''}>${u}</option>`).join('');
     tr.innerHTML = `
       <td style="color:var(--accent);font-weight:700;font-size:13px;text-align:center">${pos}</td>
-      <td><input class="inline-input" style="width:130px" type="text" value="${escHtml(item.codigo_sap_cliente)}" placeholder="Cód. SAP" oninput="_ocItemsManual[${idx}].codigo_sap_cliente=this.value" /></td>
-      <td><input class="inline-input" style="width:100%;min-width:200px" type="text" value="${escHtml(item.descripcion)}" placeholder="Descripción del producto" oninput="_ocItemsManual[${idx}].descripcion=this.value" /></td>
+      <td><input class="inline-input" id="noc-sap-${idx}" style="width:130px" type="text" value="${escHtml(item.codigo_sap_cliente)}" placeholder="Cód. SAP" oninput="_ocItemsManual[${idx}].codigo_sap_cliente=this.value" /></td>
+      <td style="position:relative">
+        <div class="ac-wrapper" style="width:100%;min-width:200px">
+          <input class="inline-input ac-input" id="noc-desc-${idx}" style="width:100%" type="text" value="${escHtml(item.descripcion)}" placeholder="Descripción del producto..." oninput="buscarProdOC(${idx}, this.value)" onfocus="buscarProdOC(${idx}, this.value)" autocomplete="off" />
+          <div class="ac-dropdown" id="noc-drop-${idx}"></div>
+        </div>
+      </td>
       <td><input class="inline-input" style="width:110px" type="number" value="${item.cantidad_original||''}" placeholder="0" min="0.001" step="0.001" oninput="_ocItemsManual[${idx}].cantidad_original=this.value" /></td>
       <td><select class="inline-select" onchange="_ocItemsManual[${idx}].unidad=this.value">${opts}</select></td>
       <td><button class="btn-icon btn-icon-danger" onclick="_eliminarFilaOC(${idx})" title="Eliminar">✕</button></td>`;
@@ -919,6 +924,58 @@ function agregarFilaOC() {
   // Scroll al final de la tabla
   const wrapper = document.querySelector('#modal-nueva-oc .table-wrapper');
   if (wrapper) setTimeout(() => { wrapper.scrollTop = wrapper.scrollHeight; }, 50);
+}
+
+// ==== BÚSQUEDA DE PRODUCTOS OC ====
+let _acProdOCCache = {};
+let _acSearchTimer = null;
+
+async function buscarProdOC(idx, query) {
+  const dropdown = document.getElementById(`noc-drop-${idx}`);
+  _ocItemsManual[idx].descripcion = query; // actualizar modelo
+
+  const q = query.trim();
+  if (q.length < 2) {
+    dropdown.style.display = 'none';
+    return;
+  }
+
+  clearTimeout(_acSearchTimer);
+  _acSearchTimer = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/productos/buscar?q=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error('Error al buscar');
+      const data = await res.json();
+      
+      if (!data.length) {
+        dropdown.innerHTML = '<div class="ac-no-results">Sin coincidencias</div>';
+        dropdown.style.display = 'block';
+        return;
+      }
+      
+      _acProdOCCache[idx] = data;
+      dropdown.innerHTML = data.map((p, i) => `
+        <div class="ac-item" onclick="seleccionarProdOC(${idx},${i})">
+          <span class="ac-main">${p.descripcion || '—'}</span>
+          <span class="ac-sub">ACN: ${p.codigo_sap_cliente} &nbsp;·&nbsp; RHIM: ${p.codigo_sap_interno || '—'}</span>
+        </div>`).join('');
+      dropdown.style.display = 'block';
+    } catch (e) {
+      console.error(e);
+    }
+  }, 300); // debounce de 300ms
+}
+
+function seleccionarProdOC(idx, prodIdx) {
+  const p = _acProdOCCache[idx]?.[prodIdx];
+  if (!p) return;
+
+  document.getElementById(`noc-desc-${idx}`).value = p.descripcion || '';
+  document.getElementById(`noc-sap-${idx}`).value  = p.codigo_sap_cliente || '';
+  document.getElementById(`noc-drop-${idx}`).style.display = 'none';
+
+  _ocItemsManual[idx].descripcion = p.descripcion || '';
+  _ocItemsManual[idx].codigo_sap_cliente = p.codigo_sap_cliente || '';
 }
 
 function _eliminarFilaOC(idx) {
